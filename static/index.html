@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hyatt Comp Night Scanner</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace" aria-labelledby="page-title">
+        <div class="masthead">
+          <div>
+            <p class="eyebrow">HyattConnect automation</p>
+            <h1 id="page-title">Comp Night Scanner</h1>
+          </div>
+          <div class="status-pill" id="status-pill">Ready</div>
+        </div>
+
+        <form id="search-form" class="search-panel">
+          <label>
+            <span>Destination</span>
+            <input id="destination" name="destination" value="Tokyo" autocomplete="off">
+          </label>
+
+          <label>
+            <span>Period start</span>
+            <input id="start-date" name="startDate" type="date" required>
+          </label>
+
+          <label>
+            <span>Period end</span>
+            <input id="end-date" name="endDate" type="date" required>
+          </label>
+
+          <label>
+            <span>Shoulder days</span>
+            <select id="shoulder-days" name="shoulderDays">
+              <option value="7" selected>+/- 7</option>
+              <option value="3">+/- 3</option>
+              <option value="0">+/- 0</option>
+            </select>
+          </label>
+
+          <label class="toggle">
+            <input id="keep-open" name="keepOpen" type="checkbox">
+            <span>Keep browser open</span>
+          </label>
+
+          <button id="start-button" type="submit">Scan Nights</button>
+        </form>
+
+        <section class="run-state" aria-live="polite">
+          <div>
+            <p class="label">Current job</p>
+            <p class="job-line" id="job-line">No scan running</p>
+          </div>
+          <div class="actions">
+            <button class="secondary-button" id="copy-button" type="button" disabled>Copy CSV</button>
+            <a class="result-link hidden" id="result-link" href="#" target="_blank" rel="noreferrer">Open result URL</a>
+          </div>
+        </section>
+
+        <section class="results-panel" aria-labelledby="results-title">
+          <div class="log-heading">
+            <h2 id="results-title">Available Complimentary Nights</h2>
+            <p class="summary-line" id="summary-line">No scan results yet</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Property</th>
+                  <th>Dates with complimentary room nights available</th>
+                </tr>
+              </thead>
+              <tbody id="results-body">
+                <tr>
+                  <td colspan="2" class="empty-cell">No available nights collected yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="log-panel" aria-labelledby="log-title">
+          <div class="log-heading">
+            <h2 id="log-title">Run Log</h2>
+            <button id="clear-button" type="button">Clear</button>
+          </div>
+          <ol id="log-list"></ol>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

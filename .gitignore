@@ -1,0 +1,5 @@
+__pycache__/
+.playwright/
+*.pyc
+server.log
+server.err.log
