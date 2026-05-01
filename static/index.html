@@ -48,6 +48,23 @@
           </label>
 
           <button id="start-button" type="submit">Scan Nights</button>
+          <button class="danger-button" id="stop-button" type="button" disabled>Stop</button>
+
+          <fieldset class="repeat-panel">
+            <label class="toggle">
+              <input id="repeat-enabled" name="repeatEnabled" type="checkbox">
+              <span>Repeat</span>
+            </label>
+            <label>
+              <span>Hours</span>
+              <input id="repeat-hours" name="repeatHours" type="number" min="0" max="168" value="0">
+            </label>
+            <label>
+              <span>Minutes</span>
+              <input id="repeat-minutes" name="repeatMinutes" type="number" min="0" max="59" value="30">
+            </label>
+            <p id="repeat-status">Repeat off</p>
+          </fieldset>
         </form>
 
         <section class="run-state" aria-live="polite">

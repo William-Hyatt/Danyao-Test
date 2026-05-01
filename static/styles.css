@@ -95,12 +95,14 @@ h2 {
 }
 
 .status-pill[data-status="running"],
-.status-pill[data-status="queued"] {
+.status-pill[data-status="queued"],
+.status-pill[data-status="stopping"] {
   background: #fff0e9;
   color: var(--brick);
 }
 
-.status-pill[data-status="completed"] {
+.status-pill[data-status="completed"],
+.status-pill[data-status="stopped"] {
   background: #eaf5ec;
   color: #1b7437;
 }
@@ -117,6 +119,26 @@ h2 {
   align-items: end;
   padding: 24px 28px;
   border-bottom: 1px solid var(--line);
+}
+
+.repeat-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(96px, 140px) minmax(96px, 140px) 1fr;
+  gap: 14px;
+  align-items: end;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+#repeat-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
 }
 
 label {
@@ -175,6 +197,14 @@ button,
 button:hover,
 .result-link:hover {
   background: var(--button-hover);
+}
+
+.danger-button {
+  background: #a92d22;
+}
+
+.danger-button:hover {
+  background: #872118;
 }
 
 .secondary-button {
@@ -324,13 +354,22 @@ time {
   }
 
   .toggle,
-  #start-button {
+  #start-button,
+  #stop-button {
     grid-column: span 1;
   }
 
   .actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .repeat-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #repeat-status {
+    grid-column: 1 / -1;
   }
 }
 
@@ -348,6 +387,14 @@ time {
 
   .search-panel {
     grid-template-columns: 1fr;
+  }
+
+  .repeat-panel {
+    grid-template-columns: 1fr;
+  }
+
+  #repeat-status {
+    grid-column: auto;
   }
 
   li {

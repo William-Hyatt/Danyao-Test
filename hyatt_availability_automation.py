@@ -26,6 +26,11 @@ DATE_TEXT = re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
 
 Logger = Callable[[str], None]
 ProgressCallback = Callable[[dict], None]
+ShouldStop = Callable[[], bool]
+
+
+class StopRequested(Exception):
+    pass
 
 
 def run_hyatt_availability_search(
@@ -34,6 +39,7 @@ def run_hyatt_availability_search(
     check_out: str | None = None,
     keep_open: bool = False,
     logger: Logger | None = None,
+    should_stop: ShouldStop | None = None,
 ) -> dict:
     """Compatibility wrapper for the original one-date search."""
     return run_hyatt_availability_period_scan(
@@ -43,6 +49,7 @@ def run_hyatt_availability_search(
         shoulder_days=0,
         keep_open=keep_open,
         logger=logger,
+        should_stop=should_stop,
     )
 
 
@@ -54,9 +61,11 @@ def run_hyatt_availability_period_scan(
     keep_open: bool = False,
     logger: Logger | None = None,
     progress_callback: ProgressCallback | None = None,
+    should_stop: ShouldStop | None = None,
 ) -> dict:
     log = logger or (lambda message: None)
     progress = progress_callback or (lambda result: None)
+    stop_requested = should_stop or (lambda: False)
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date)
     windows = build_scan_windows(start, end, shoulder_days)
@@ -68,15 +77,18 @@ def run_hyatt_availability_period_scan(
         page = context.pages[0] if context.pages else context.new_page()
 
         try:
+            check_stop(stop_requested)
             page.goto(HYATT_HOME_URL, wait_until="domcontentloaded", timeout=90_000)
             log("HyattConnect loaded. If SSO appears, sign in in the opened browser.")
 
-            wait_for_app_link(page, log)
+            wait_for_app_link(page, log, stop_requested)
+            check_stop(stop_requested)
             active_page = click_colleague_availability_link(context, page, log)
             active_page.bring_to_front()
             settle_page(active_page)
 
             for index, window in enumerate(windows, start=1):
+                check_stop(stop_requested)
                 arrival = window["arrival_date"]
                 log(
                     "Scanning window "
@@ -89,9 +101,12 @@ def run_hyatt_availability_period_scan(
                     arrival_date=arrival,
                     shoulder_days=shoulder_days,
                     log=log,
+                    should_stop=stop_requested,
                 )
+                check_stop(stop_requested)
                 submit_search(active_page, log)
-                wait_for_results_grid(active_page, log)
+                wait_for_results_grid(active_page, log, stop_requested)
+                check_stop(stop_requested)
                 select_list_view(active_page)
 
                 window_results = extract_available_nights(active_page, start, end)
@@ -125,15 +140,23 @@ def run_hyatt_availability_period_scan(
             if keep_open:
                 log("Scan is complete. Close the Playwright browser when you are finished reviewing it.")
                 progress(result)
-                wait_until_browser_closed(context)
+                wait_until_browser_closed(context, stop_requested)
             else:
                 context.close()
 
             return result
+        except StopRequested:
+            context.close()
+            raise
         except Exception:
             if not keep_open:
                 context.close()
             raise
+
+
+def check_stop(should_stop: ShouldStop) -> None:
+    if should_stop():
+        raise StopRequested("Automation stopped by user.")
 
 
 def launch_context(playwright, log: Logger) -> BrowserContext:
@@ -189,11 +212,12 @@ def build_scan_windows(start: date, end: date, shoulder_days: int) -> list[dict[
     return windows
 
 
-def wait_for_app_link(page: Page, log: Logger) -> None:
+def wait_for_app_link(page: Page, log: Logger, should_stop: ShouldStop) -> None:
     deadline = time.monotonic() + 180
     last_filter_attempt = 0.0
 
     while time.monotonic() < deadline:
+        check_stop(should_stop)
         if text_exists_in_any_frame(page, APP_LINK_PATTERN):
             log("Found Colleague Discount Room Availability.")
             return
@@ -239,31 +263,37 @@ def configure_single_night_search(
     arrival_date: str,
     shoulder_days: int,
     log: Logger,
+    should_stop: ShouldStop,
 ) -> None:
     settle_page(page)
+    check_stop(should_stop)
     log(f"Setting destination to {destination}.")
     fill_destination(page, destination)
 
+    check_stop(should_stop)
     log(f"Setting arrival date to {arrival_date}.")
     fill_date(page, ARRIVAL_DATE_LABEL, arrival_date)
 
+    check_stop(should_stop)
     log(f"Setting shoulder days to +/- {shoulder_days}.")
     set_shoulder_days(page, shoulder_days)
 
+    check_stop(should_stop)
     log("Setting search controls to 1 night, 1 room, 1 adult, 0 children.")
     set_counter_value(page, "Nights", 1)
     set_counter_value(page, "Rooms", 1)
     set_counter_value(page, "Adults", 1)
     set_counter_value(page, "Children", 0)
 
+    check_stop(should_stop)
     log("Selecting Colleague Comp rate.")
     select_colleague_comp_rate(page)
 
 
 def fill_destination(page: Page, destination: str) -> None:
     for locator in destination_locators(page):
-        if try_fill(locator, destination, press_enter=True):
-            click_matching_suggestion(page, destination)
+        if try_fill(locator, destination):
+            click_destination_autocomplete_option(page, destination)
             return
     raise TimeoutError("Could not find a destination field on the availability page.")
 
@@ -370,9 +400,10 @@ def submit_search(page: Page, log: Logger) -> None:
     raise TimeoutError("Could not find a Check Availability button.")
 
 
-def wait_for_results_grid(page: Page, log: Logger) -> None:
+def wait_for_results_grid(page: Page, log: Logger, should_stop: ShouldStop) -> None:
     deadline = time.monotonic() + 75
     while time.monotonic() < deadline:
+        check_stop(should_stop)
         if text_exists_in_any_frame(page, RESULTS_TEXT):
             return
         time.sleep(1)
@@ -687,16 +718,60 @@ def try_check(locator: Locator) -> bool:
         return False
 
 
-def click_matching_suggestion(page: Page, destination: str) -> None:
+def click_destination_autocomplete_option(page: Page, destination: str) -> None:
     pattern = re.compile(re.escape(destination), re.I)
     time.sleep(0.3)
     for frame in page.frames:
-        option = frame.get_by_role("option", name=pattern).first
-        if try_click(option):
-            return
-        suggestion = frame.get_by_text(pattern).first
-        if try_click(suggestion):
-            return
+        locators = [
+            frame.get_by_role("option", name=pattern).first,
+            frame.locator("[role='listbox'] [role='option']").filter(has_text=pattern).first,
+            frame.locator("[role='menu'] [role='menuitem']").filter(has_text=pattern).first,
+            frame.locator(".pac-item, .ui-menu-item, [class*='suggest' i], [class*='autocomplete' i]")
+            .filter(has_text=pattern)
+            .first,
+        ]
+        for locator in locators:
+            if try_click_autocomplete_option(locator):
+                return
+
+
+def try_click_autocomplete_option(locator: Locator) -> bool:
+    try:
+        locator.wait_for(state="visible", timeout=900)
+        is_safe = locator.evaluate(
+            """
+            element => {
+              const unsafeSelector = [
+                'a[href]',
+                'table',
+                '[role="grid"]',
+                '[role="table"]',
+                '[data-property]',
+                '[class*="property" i]',
+                '[class*="hotel" i]'
+              ].join(',');
+              if (element.matches('a[href]')) return false;
+              if (element.closest(unsafeSelector)) return false;
+              const optionSelector = [
+                '[role="option"]',
+                '[role="listbox"]',
+                '[role="menu"]',
+                '[role="menuitem"]',
+                '.pac-item',
+                '.ui-menu-item',
+                '[class*="suggest" i]',
+                '[class*="autocomplete" i]'
+              ].join(',');
+              return Boolean(element.matches(optionSelector) || element.closest(optionSelector));
+            }
+            """
+        )
+        if not is_safe:
+            return False
+        locator.click(timeout=1_500)
+        return True
+    except Error:
+        return False
 
 
 def try_fill_app_filter(page: Page) -> None:
@@ -759,9 +834,10 @@ def safe_url(page: Page) -> str:
         return ""
 
 
-def wait_until_browser_closed(context: BrowserContext) -> None:
+def wait_until_browser_closed(context: BrowserContext, should_stop: ShouldStop) -> None:
     while True:
         try:
+            check_stop(should_stop)
             if not context.pages:
                 return
             time.sleep(1)

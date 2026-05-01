@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from hyatt_availability_automation import run_hyatt_availability_period_scan
+from hyatt_availability_automation import StopRequested, run_hyatt_availability_period_scan
 
 
 ROOT = Path(__file__).resolve().parent
@@ -21,6 +21,7 @@ HOST = os.environ.get("HYATT_APP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("HYATT_APP_PORT", "8765"))
 
 JOBS: dict[str, dict] = {}
+CANCEL_EVENTS: dict[str, threading.Event] = {}
 JOBS_LOCK = threading.Lock()
 JOB_COUNTER = 0
 
@@ -85,9 +86,11 @@ def create_job(params: dict) -> str:
             "logs": [{"time": utc_stamp(), "message": "Queued single-night availability scan."}],
             "result": None,
             "error": None,
+            "stopRequested": False,
             "createdAt": utc_stamp(),
             "updatedAt": utc_stamp(),
         }
+        CANCEL_EVENTS[job_id] = threading.Event()
     return job_id
 
 
@@ -111,6 +114,35 @@ def set_job_result(job_id: str, result: dict) -> None:
         job["updatedAt"] = utc_stamp()
 
 
+def request_job_stop(job_id: str) -> dict | None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return None
+
+        event = CANCEL_EVENTS.get(job_id)
+        if event:
+            event.set()
+
+        job["stopRequested"] = True
+        if job["status"] in ("queued", "running"):
+            job["status"] = "stopping"
+            job["logs"].append({"time": utc_stamp(), "message": "Stop requested. Waiting for the current browser step to finish."})
+        job["updatedAt"] = utc_stamp()
+        return json.loads(json.dumps(job))
+
+
+def is_job_stop_requested(job_id: str) -> bool:
+    with JOBS_LOCK:
+        event = CANCEL_EVENTS.get(job_id)
+        return bool(event and event.is_set())
+
+
+def clear_cancel_event(job_id: str) -> None:
+    with JOBS_LOCK:
+        CANCEL_EVENTS.pop(job_id, None)
+
+
 def run_job(job_id: str) -> None:
     with JOBS_LOCK:
         params = dict(JOBS[job_id]["params"])
@@ -127,9 +159,17 @@ def run_job(job_id: str) -> None:
             keep_open=params["keep_open"],
             logger=lambda message: append_log(job_id, message),
             progress_callback=lambda partial: set_job_result(job_id, partial),
+            should_stop=lambda: is_job_stop_requested(job_id),
         )
-        set_job_status(job_id, "completed", result=result)
-        append_log(job_id, "Automation finished.")
+        if is_job_stop_requested(job_id):
+            set_job_status(job_id, "stopped", result=result)
+            append_log(job_id, "Automation stopped.")
+        else:
+            set_job_status(job_id, "completed", result=result)
+            append_log(job_id, "Automation finished.")
+    except StopRequested as exc:
+        set_job_status(job_id, "stopped")
+        append_log(job_id, str(exc) or "Automation stopped.")
     except Exception as exc:  # noqa: BLE001 - surface automation errors to the UI
         set_job_status(
             job_id,
@@ -137,6 +177,8 @@ def run_job(job_id: str) -> None:
             error={"message": str(exc), "traceback": traceback.format_exc(limit=6)},
         )
         append_log(job_id, f"Automation failed: {exc}")
+    finally:
+        clear_cancel_event(job_id)
 
 
 class HyattAvailabilityHandler(BaseHTTPRequestHandler):
@@ -175,6 +217,18 @@ class HyattAvailabilityHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        path = unquote(parsed.path)
+
+        if path.startswith("/api/jobs/") and path.endswith("/stop"):
+            parts = path.strip("/").split("/")
+            job_id = parts[2] if len(parts) >= 4 else ""
+            job = request_job_stop(job_id)
+            if not job:
+                self.send_json({"error": "Job not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self.send_json({"job": job}, HTTPStatus.ACCEPTED)
+            return
+
         if parsed.path != "/api/search":
             self.send_error(HTTPStatus.NOT_FOUND)
             return

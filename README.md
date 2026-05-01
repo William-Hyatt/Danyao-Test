@@ -20,6 +20,8 @@ The app sets the availability site to 1 night, 1 room, 1 adult, 0 children, and 
 Property | Dates with complimentary room nights available
 ```
 
+When availability appears during a scan, the app shows a browser alert immediately. Use **Stop** to request cancellation of the current scan; it will stop at the next browser checkpoint. Enable **Repeat** and set hours/minutes to rerun the same scan automatically while the app page remains open.
+
 The first run may ask you to sign in to HyattConnect in the Playwright browser. The app uses a persistent local browser profile at `.playwright/hyatt-profile`, so your session can be reused.
 
 ## Notes
